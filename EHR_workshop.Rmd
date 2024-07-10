@@ -1,0 +1,175 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*.
+
+```{r}
+library(tidyverse) 
+library(MatchIt) 
+library(survey) 
+library(cobalt) 
+library(tableone) 
+library(haven) 
+library(ggplot2)
+library(see)
+library(ggsignif)
+
+data <- read_dta(file = "PS_practical_data.dta")
+## treatment outcome
+model <- glm(trt ~ outcome, family=binomial(), data=data)
+summary.glm(model)
+broom::tidy(model, exponentiate=TRUE, conf.int=TRUE) 
+
+
+```
+
+```{r}
+### adjusted model
+adjusted_model <- glm(trt ~ outcome + age + female+ ses+ smoke + alc + bmicat + nsaid_rx 
+                      + cancer + hyper, family=binomial(), data=data) 
+summary.glm(adjusted_model)
+broom::tidy(adjusted_model, exponentiate=TRUE, conf.int=TRUE) 
+
+
+
+
+```
+
+```{r}
+### propensity score model
+PS_model <- glm(trt ~ age + female+ ses+ smoke + alc + bmicat + nsaid_rx + cancer + 
+                  hyper, family=binomial(), data=data) 
+
+broom::tidy(PS_model, exponentiate=TRUE, conf.int=TRUE) 
+
+```
+
+```{r}
+
+
+### PS model prediction 
+data$PS <- PS_model %>% predict(data, type = "response") 
+ 
+```
+
+```{r}
+
+### histogram
+hist(data$PS, xlab="Propensity score", ylab= "Number of individuals", main="Propensity 
+score distribution", col="darkgrey", breaks=50) 
+
+
+```
+
+```{r}
+### boxplot by treatment
+boxplot(PS ~ trt, data= data, ylab="Propensity score", xlab="Treatment")
+
+
+```
+
+```{r}
+### ggplot2 histogram by treatment
+ggplot(data, aes(x=PS, color=factor(trt), fill=factor(trt))) +
+  geom_histogram(position="identity", bins=50, alpha=0.5) + 
+  labs(x = "Propensity score", y="Number of individuals")
+```
+
+```{r}
+ggplot(data, aes(x = factor(trt), y = PS, fill = factor(trt))) +
+  geom_violinhalf() +
+  theme_modern() +
+  scale_fill_material_d() +
+  labs(x = "Treatment", y = "Number of individuals")
+```
+
+```{r}
+data %>% 
+ group_by(trt) %>% 
+ summarize(n=n(), min=min(PS), mean_PS=mean(PS), median_PS=median(PS), 
+max=max(PS)) 
+```
+
+```{r}
+data %>% 
+ group_by(trt) %>% 
+ summarize(mean=mean(age), sd=sd(age)) 
+```
+
+```{r}
+data %>% 
+ group_by(trt, female) %>% 
+ summarize(n=n()) %>% 
+ mutate(perc=prop.table(n)) 
+```
+
+```{r}
+library(tableone) 
+vars <- c("age", "female", "ses", "alc", "bmicat", "nsaid_rx", "cancer", "hyper") 
+SD_crude <- CreateTableOne(vars, data=data, strata="trt", test=FALSE) 
+print(SD_crude, smd=TRUE) 
+```
+
+```{r}
+library(cobalt) 
+covs <- subset(data, select=c(age, female, ses, alc, bmicat, nsaid_rx, cancer, hyper)) 
+bal.tab(covs, treat=data$trt, binary="std", continuous="std", s.d.denom="pooled") 
+```
+
+```{r}
+model <- glm(outcome ~ trt * PS, data = data, family = binomial) 
+summary.glm(model) 
+```
+
+```{r}
+data$wt <- ifelse(data$trt == 1, 1 / data$PS, 1 / (1 - data$PS)) 
+hist(data$wt, xlab="Weights", ylab="Number of individuals", main="Distribution 
+of matching weights", col="darkgrey", breaks=50) 
+```
+
+```{r}
+match_data <- matchit(trt ~ outcome + age + female+ ses+ smoke + alc + bmicat + nsaid_rx 
++ cancer + hyper, method="nearest", ratio=1, replace=TRUE, caliper=0.2*sd(data$PS), 
+data=data) 
+summary(match_data) 
+```
+
+```{r}
+hist(match_data$weights, xlab="Weights", ylab="Number of individuals", main="Distribution 
+of matching weights", col="darkgrey", breaks=50) 
+```
+
+```{r}
+matched <- match.data(match_data) 
+head(matched) 
+```
+
+```{r}
+boxplot(PS ~ trt, data= matched, ylab="Propensity score", xlab="Treatment")
+```
+
+```{r}
+ggplot(matched, aes(x=PS, color=factor(trt), fill=factor(trt))) + 
+ geom_histogram(position="identity", bins=50, alpha=0.5) + 
+ labs(x = "Propensity score", y="Number of individuals") 
+```
+
+```{r}
+SD_matched <- CreateTableOne(vars, data=matched, strata="trt", test=FALSE) 
+print(SD_matched, smd=TRUE)
+```
+
+```{r}
+matched_logit <- glm(outcome ~ trt, weights=weights, family=binomial(), data=matched) 
+summary(matched_logit) 
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
